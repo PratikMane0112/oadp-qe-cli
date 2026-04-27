@@ -24,7 +24,8 @@
 #
 # Advanced Options:
 #   -f, --test-folder FOLDER    Override auto-detected test folder
-#                               Valid values: e2e, e2e/non-admin, or e2e/oadp_cli
+#                               Valid values: e2e, e2e/non-admin, e2e/oadp_cli,
+#                               backup_lib/backup, or backup_lib/restore
 #
 # Cleanup Options:
 #   --cleanup flag:      Deletes only DPAs before tests (quick, pre-test cleanup)
@@ -111,7 +112,8 @@ Options:
 
 Advanced Options:
   -f, --test-folder FOLDER    Override auto-detected test folder
-                              Valid values: e2e, e2e/non-admin, or e2e/oadp_cli
+                              Valid values: e2e, e2e/non-admin, e2e/oadp_cli,
+                              backup_lib/backup, or backup_lib/restore
                               Note: Do NOT use e2e/app_backup - use "e2e" instead
                               Default: auto-detected based on test ID
 
@@ -135,9 +137,11 @@ Examples:
   $0 --setup-only                             # Setup environment without running tests
 
 Common Test Folders:
-  e2e              - Admin tests (includes app_backup, hooks, schedule, etc.)
-  e2e/non-admin    - Non-admin tests
-  e2e/oadp_cli     - OADP CLI tests (backup/restore via oc oadp)
+  e2e                  - Admin tests (includes app_backup, hooks, schedule, etc.)
+  e2e/non-admin        - Non-admin tests
+  e2e/oadp_cli         - OADP CLI tests (backup/restore via oc oadp)
+  backup_lib/backup    - Backup library tests (backup creation)
+  backup_lib/restore   - Backup library tests (restore from backup)
 
 Note: Tests in e2e/app_backup/ are admin tests, use --test-folder e2e (or auto-detect)
 
@@ -164,6 +168,15 @@ auto_detect_test_folder() {
     # Search for test ID in different folders
     # Priority order: e2e/app_backup, e2e/non-admin, other e2e subdirs, then e2e root
     
+    # Check if test exists in backup_lib/ (backup library tests - separate ginkgo suites)
+    for subdir in backup_lib/backup backup_lib/restore; do
+        if [ -d "$subdir" ] && grep -r "\[tc-id:$test_id\]" "$subdir/" 2>/dev/null | grep -q "\.go:"; then
+            TEST_FOLDER="$subdir"
+            print_info "Auto-detected test folder: $subdir (backup library test)"
+            return 0
+        fi
+    done
+
     # Check if test exists in e2e/app_backup/ (admin tests)
     if grep -r "\[tc-id:$test_id\]" e2e/app_backup/ 2>/dev/null | grep -q "\.go:"; then
         TEST_FOLDER="e2e"
@@ -185,8 +198,15 @@ auto_detect_test_folder() {
         return 0
     fi
 
+    # Check if test exists in e2e/kubevirt-plugin/ (separate ginkgo suite)
+    if grep -r "\[tc-id:$test_id\]" e2e/kubevirt-plugin/ 2>/dev/null | grep -q "\.go:"; then
+        TEST_FOLDER="e2e/kubevirt-plugin"
+        print_info "Auto-detected test folder: e2e/kubevirt-plugin (KubeVirt test)"
+        return 0
+    fi
+
     # Check other common e2e subdirectories
-    for subdir in hooks schedule security dpa_deploy credentials incremental_restore must-gather operator resource_limits subscription cacert; do
+    for subdir in hooks schedule security dpa_deploy credentials incremental_restore must-gather operator resource_limits subscription cacert cloudstorage cross-cluster lrt; do
         if [ -d "e2e/$subdir" ] && grep -r "\[tc-id:$test_id\]" "e2e/$subdir/" 2>/dev/null | grep -q "\.go:"; then
             TEST_FOLDER="e2e"
             print_info "Auto-detected test folder: e2e (test found in $subdir)"
@@ -221,6 +241,15 @@ auto_detect_focus_folder() {
         return 0
     fi
     
+    # Check backup_lib tests (separate ginkgo suites)
+    for subdir in backup_lib/backup backup_lib/restore; do
+        if [ -d "$subdir" ] && grep -r "$pattern" "$subdir/" 2>/dev/null | grep -q "\.go:"; then
+            TEST_FOLDER="$subdir"
+            print_info "Auto-detected test folder: $subdir (backup library test matching focus pattern)"
+            return 0
+        fi
+    done
+
     # Check OADP CLI tests
     if grep -r "$pattern" e2e/oadp_cli/ 2>/dev/null | grep -q "\.go:"; then
         TEST_FOLDER="e2e/oadp_cli"
@@ -268,9 +297,9 @@ parse_args() {
             -f|--test-folder)
                 TEST_FOLDER="$2"
                 # Validate test folder
-                if [[ "$TEST_FOLDER" != "e2e" ]] && [[ "$TEST_FOLDER" != "e2e/non-admin" ]] && [[ "$TEST_FOLDER" != "e2e/oadp_cli" ]]; then
+                if [[ "$TEST_FOLDER" != "e2e" ]] && [[ "$TEST_FOLDER" != "e2e/non-admin" ]] && [[ "$TEST_FOLDER" != "e2e/oadp_cli" ]] && [[ "$TEST_FOLDER" != "e2e/kubevirt-plugin" ]] && [[ "$TEST_FOLDER" != backup_lib/* ]]; then
                     print_error "Invalid test folder: $TEST_FOLDER"
-                    print_info "Valid options: e2e, e2e/non-admin, or e2e/oadp_cli"
+                    print_info "Valid options: e2e, e2e/non-admin, e2e/oadp_cli, backup_lib/backup, or backup_lib/restore"
                     print_info "Note: For tests in e2e/app_backup/, use --test-folder e2e (or omit for auto-detect)"
                     exit 1
                 fi
